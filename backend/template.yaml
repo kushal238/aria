@@ -1,0 +1,222 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  Backend for the PrescriptionMaster application, using a Lambda function and API Gateway with Cognito authentication.
+
+Globals:
+  Function:
+    Timeout: 10
+    MemorySize: 256
+
+Resources:
+  # --- Cognito User Pool, managed by this template ---
+  PrescriptionMasterUserPool:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      UserPoolName: !Sub ${AWS::StackName}-user-pool
+      Schema:
+        - Name: email
+          AttributeDataType: String
+          Mutable: true
+          Required: true
+      Policies:
+        PasswordPolicy:
+          MinimumLength: 8
+          RequireLowercase: true
+          RequireNumbers: true
+          RequireSymbols: true
+          RequireUppercase: true
+      AutoVerifiedAttributes:
+        - email
+      UsernameAttributes:
+        - email
+      MfaConfiguration: 'OFF'
+
+  # --- Cognito App Client for the Patient App ---
+  PatientAppClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      ClientName: !Sub ${AWS::StackName}-patient-app-client
+      UserPoolId: !Ref PrescriptionMasterUserPool
+      GenerateSecret: false
+      ExplicitAuthFlows:
+        - ALLOW_USER_SRP_AUTH
+        - ALLOW_REFRESH_TOKEN_AUTH
+
+  # --- Cognito App Client for the Doctor App ---
+  DoctorAppClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      ClientName: !Sub ${AWS::StackName}-doctor-app-client
+      UserPoolId: !Ref PrescriptionMasterUserPool
+      GenerateSecret: false
+      ExplicitAuthFlows:
+        - ALLOW_USER_SRP_AUTH
+        - ALLOW_REFRESH_TOKEN_AUTH
+
+  PrescriptionMasterApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      StageName: dev
+      Auth:
+        DefaultAuthorizer: CognitoAuthorizer
+        Authorizers:
+          CognitoAuthorizer:
+            UserPoolArn: !GetAtt PrescriptionMasterUserPool.Arn # Point to the new User Pool
+            Identity:
+              Header: Authorization
+
+  ApiFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: .
+      Handler: main.handler
+      Runtime: python3.9
+      Architectures:
+        - x86_64
+      Environment:
+        Variables:
+          COGNITO_REGION: !Ref AWS::Region
+          COGNITO_USERPOOL_ID: !Ref PrescriptionMasterUserPool # Reference the new User Pool
+          # We need both App Client IDs to identify the app type from the token
+          PATIENT_APP_CLIENT_ID: !Ref PatientAppClient
+          DOCTOR_APP_CLIENT_ID: !Ref DoctorAppClient
+          USERS_TABLE_NAME: !Ref UsersTable
+          PATIENTS_TABLE_NAME: !Ref PatientsTable
+          DOCTORS_TABLE_NAME: !Ref DoctorsTable
+          PRESCRIPTIONS_TABLE_NAME: !Ref PrescriptionsTable
+          API_JWT_SECRET_NAME: '/PrescriptionMaster/ApiJwtSecret'
+      Events:
+        # This event handles the login route and implicitly uses the DefaultAuthorizer (Cognito)
+        Login:
+          Type: Api
+          Properties:
+            Path: /auth/login
+            Method: post
+            RestApiId: !Ref PrescriptionMasterApi
+
+        # This event handles all other routes and explicitly overrides the default authorizer
+        CatchAll:
+          Type: Api
+          Properties:
+            Path: /{proxy+}
+            Method: any
+            RestApiId: !Ref PrescriptionMasterApi
+            Auth:
+              Authorizer: NONE
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref UsersTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref PatientsTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref DoctorsTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref PrescriptionsTable
+        - Statement:
+          - Effect: Allow
+            Action:
+              - ssm:GetParameter
+            Resource: !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/PrescriptionMaster/ApiJwtSecret'
+
+  UsersTable:
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      TableName: Users
+      AttributeDefinitions:
+        - AttributeName: userId
+          AttributeType: S
+        - AttributeName: cognitoSub
+          AttributeType: S
+      KeySchema:
+        - AttributeName: userId
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: Index-cognitoSub
+          KeySchema:
+            - AttributeName: cognitoSub
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+      BillingMode: PAY_PER_REQUEST
+
+  PatientsTable:
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      TableName: Patients
+      AttributeDefinitions:
+        - AttributeName: userId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: userId
+          KeyType: HASH
+      BillingMode: PAY_PER_REQUEST
+
+  DoctorsTable:
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      TableName: Doctors
+      AttributeDefinitions:
+        - AttributeName: userId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: userId
+          KeyType: HASH
+      BillingMode: PAY_PER_REQUEST
+
+  PrescriptionsTable:
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      TableName: !Sub ${AWS::StackName}-Prescriptions
+      AttributeDefinitions:
+        - AttributeName: prescriptionId
+          AttributeType: S
+        - AttributeName: patientId
+          AttributeType: S
+        - AttributeName: doctorId
+          AttributeType: S
+        - AttributeName: createdAt
+          AttributeType: S
+      KeySchema:
+        - AttributeName: prescriptionId
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: patientId-createdAt-index
+          KeySchema:
+            - AttributeName: patientId
+              KeyType: HASH
+            - AttributeName: createdAt
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+        - IndexName: doctorId-createdAt-index
+          KeySchema:
+            - AttributeName: doctorId
+              KeyType: HASH
+            - AttributeName: createdAt
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+      BillingMode: PAY_PER_REQUEST
+
+Outputs:
+  ApiEndpoint:
+    Description: "API Gateway endpoint URL for the application"
+    Value: !Sub "https://${PrescriptionMasterApi}.execute-api.${AWS::Region}.amazonaws.com/dev/"
+  UserPoolId:
+    Description: "The ID of the newly created Cognito User Pool"
+    Value: !Ref PrescriptionMasterUserPool
+  PatientAppClientId:
+    Description: "The Client ID for the Patient mobile app"
+    Value: !Ref PatientAppClient
+  DoctorAppClientId:
+    Description: "The Client ID for the Doctor mobile app"
+    Value: !Ref DoctorAppClient
