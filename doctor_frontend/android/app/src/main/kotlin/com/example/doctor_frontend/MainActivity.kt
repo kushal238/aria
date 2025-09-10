@@ -1,0 +1,5 @@
+package com.example.doctor_frontend
+
+import io.flutter.embedding.android.FlutterActivity
+
+class MainActivity : FlutterActivity()

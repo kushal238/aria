@@ -1,0 +1,49 @@
+# Created by Gemini
+
+# General
+.DS_Store
+*.log
+.idea/
+.vscode/
+
+# Python / SAM Backend
+backend/__pycache__/
+backend/*.pyc
+backend/.venv/
+backend/venv/
+backend/env/
+backend/*.env
+backend/deployment.zip
+backend/samconfig.toml
+backend/package/
+
+# Flutter / Dart
+build/
+.dart_tool/
+.packages
+.flutter-plugins
+.flutter-plugins-dependencies
+
+# IDE project files
+*.iml
+health_app.iml
+health_app_android.iml
+
+# Flutter (iOS)
+ios/Pods/
+ios/Podfile.lock
+ios/.symlinks/
+ios/Flutter/App.framework
+ios/Flutter/engine
+ios/Flutter/flutter_assets
+ios/Flutter/.podspec.json
+
+# Flutter (Android)
+android/key.properties
+android/local.properties
+android/.gradle/
+android/app/build/
+
+# Amplify CLI generated files (should not be in source control)
+frontend/amplify/
+doctor_frontend/amplify/
