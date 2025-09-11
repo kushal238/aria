@@ -10,8 +10,9 @@ os.environ['DOCTOR_APP_CLIENT_ID'] = "dummy_doctor_client_id"
 os.environ['API_JWT_SECRET_NAME'] = "dummy_secret_name"
 os.environ['API_JWT_SECRET'] = "a_super_secret_key_for_testing"
 
-# Now we can safely import the app
-from backend.main import app, verify_api_token
+# Now we can safely import the app and the REAL dependency
+from backend.app.main import app
+from backend.app.security import verify_api_token
 
 client = TestClient(app)
 
@@ -50,10 +51,10 @@ def test_get_current_user_profile(mocker):
     the UserResponse model (from its new location) correctly parses and
     returns the data.
     """
-    # Mock the database function where it is LOOKED UP (in main.py),
+    # Mock the database function where it is LOOKED UP (now in the users router),
     # not where it is defined (in app/crud.py). This is a key concept of patching.
     mocker.patch(
-        "backend.main.db_get_full_user_profile", # Correct target
+        "backend.app.routers.users.db_get_full_user_profile", # Correct target
         return_value=MOCK_USER_PROFILE
     )
 

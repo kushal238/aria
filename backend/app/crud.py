@@ -215,7 +215,7 @@ def db_update_user_profile(user_id: str, profile: ProfileData) -> Optional[Dict[
             users_table.update_item(**update_args)
         except Exception as e:
             print(f"DB Update Error (Users table) for user ID {user_id}: {e}")
-            return None # Only return if there's an error
+            return None 
 
     # 2. Update the Patients table (if the user has the PATIENT role and patient fields are provided)
     # -----------------------------------------------------------------------------------------------
