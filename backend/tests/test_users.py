@@ -50,9 +50,10 @@ def test_get_current_user_profile(mocker):
     the UserResponse model (from its new location) correctly parses and
     returns the data.
     """
-    # Mock the database function to return our sample profile
+    # Mock the database function where it is LOOKED UP (in main.py),
+    # not where it is defined (in app/crud.py). This is a key concept of patching.
     mocker.patch(
-        "backend.main.db_get_full_user_profile",
+        "backend.main.db_get_full_user_profile", # Correct target
         return_value=MOCK_USER_PROFILE
     )
 
