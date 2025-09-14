@@ -24,11 +24,26 @@ class _HomeScreenState extends State<HomeScreen> {
   List<dynamic> _prescriptions = [];
   bool _isLoading = true;
   String _errorMessage = '';
+  Map<String, dynamic>? _userProfile; // To hold the loaded user profile
 
   @override
   void initState() {
     super.initState();
+    _loadUserProfileAndPrescriptions();
+  }
+
+  Future<void> _loadUserProfileAndPrescriptions() async {
+    await _loadUserProfile();
     _fetchPrescriptions();
+  }
+
+  Future<void> _loadUserProfile() async {
+    final profileJson = await _storage.read(key: 'user_profile');
+    if (profileJson != null) {
+      setState(() {
+        _userProfile = jsonDecode(profileJson);
+      });
+    }
   }
 
   Future<void> _fetchPrescriptions() async {
@@ -106,9 +121,13 @@ class _HomeScreenState extends State<HomeScreen> {
       drawer: Drawer(
         child: Column(
           children: <Widget>[
-            const UserAccountsDrawerHeader(
-              accountName: Text("Patient Name Placeholder"),
-              accountEmail: Text("patient.email@placeholder.com"),
+            UserAccountsDrawerHeader(
+              accountName: Text(
+                _userProfile != null
+                  ? '${_userProfile!['first_name'] ?? ''} ${_userProfile!['last_name'] ?? ''}'
+                  : 'Loading...'
+              ),
+              accountEmail: Text(_userProfile?['email'] ?? ''),
               currentAccountPicture: CircleAvatar(
                 backgroundColor: Colors.white,
                 child: Icon(Icons.person, size: 50),
