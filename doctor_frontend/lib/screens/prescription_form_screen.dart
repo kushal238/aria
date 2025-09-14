@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:intl/intl.dart';
 
 // Represents a single medication entry in the form
 class MedicationController {
@@ -186,7 +187,8 @@ class _PrescriptionFormScreenState extends State<PrescriptionFormScreen> {
                     lastDate: DateTime.now().add(const Duration(days: 365)),
                   );
                   if (picked != null) {
-                    _expiresAtController.text = picked.toIso8601String();
+                    // Format the date to yyyy-MM-dd
+                    _expiresAtController.text = DateFormat('yyyy-MM-dd').format(picked);
                   }
                 },
                 validator: (value) => value == null || value.isEmpty ? 'Please select an expiry date' : null,

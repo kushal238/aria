@@ -12,6 +12,8 @@ class PrescriptionDetailScreen extends StatelessWidget {
     final formattedDate = DateFormat.yMMMMd().add_jm().format(createdAt);
     final patientFirstName = prescription['patientFirstName'] ?? 'N/A';
     final patientLastName = prescription['patientLastName'] ?? '';
+    final doctorFirstName = prescription['doctorFirstName'] ?? 'Dr.';
+    final doctorLastName = prescription['doctorLastName'] ?? 'Unknown';
 
     return Scaffold(
       appBar: AppBar(
@@ -25,6 +27,11 @@ class PrescriptionDetailScreen extends StatelessWidget {
             _buildDetailCard(
               title: 'Patient',
               child: Text('$patientFirstName $patientLastName', style: const TextStyle(fontSize: 18)),
+            ),
+            const SizedBox(height: 16),
+            _buildDetailCard(
+              title: 'Prescribed By',
+              child: Text('$doctorFirstName $doctorLastName', style: const TextStyle(fontSize: 18)),
             ),
             const SizedBox(height: 16),
             _buildDetailCard(

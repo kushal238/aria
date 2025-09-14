@@ -83,30 +83,35 @@ async def list_prescriptions(token_payload: Dict[str, Any] = Depends(verify_api_
             )
             all_prescriptions.extend(response.get('Items', []))
 
+        # This is an edge case but good practice
         unique_prescriptions = {p['prescriptionId']: p for p in all_prescriptions}.values()
 
+        print(f"LIST PRESCRIPTIONS: Raw DynamoDB query response: {list(unique_prescriptions)}")
+
+        # Enrich prescriptions with patient/doctor names
         enriched_prescriptions = []
         for item in unique_prescriptions:
-            if 'DOCTOR' in roles:
-                patient_id = item.get('patientId')
-                if patient_id:
-                    patient_user = db_get_user_by_id(patient_id)
-                    if patient_user:
-                        item['patientFirstName'] = patient_user.get('firstName')
-                        item['patientLastName'] = patient_user.get('lastName')
+            # Always enrich with patient info
+            patient_id = item.get('patientId')
+            if patient_id:
+                patient_user = db_get_user_by_id(patient_id)
+                if patient_user:
+                    item['patientFirstName'] = patient_user.get('firstName')
+                    item['patientLastName'] = patient_user.get('lastName')
             
-            if 'PATIENT' in roles:
-                doctor_id = item.get('doctorId')
-                if doctor_id:
-                    doctor_user = db_get_user_by_id(doctor_id)
-                    if doctor_user:
-                        item['doctorFirstName'] = doctor_user.get('firstName')
-                        item['doctorLastName'] = doctor_user.get('lastName')
+            # Always enrich with doctor info
+            doctor_id = item.get('doctorId')
+            if doctor_id:
+                doctor_user = db_get_user_by_id(doctor_id)
+                if doctor_user:
+                    item['doctorFirstName'] = doctor_user.get('firstName')
+                    item['doctorLastName'] = doctor_user.get('lastName')
 
             enriched_prescriptions.append(PrescriptionResponse(**item))
 
         return enriched_prescriptions
     except Exception as e:
+        print(f"Error listing prescriptions for user {user_id}: {e}")
         raise HTTPException(status_code=500, detail="Could not retrieve prescriptions.")
 
 

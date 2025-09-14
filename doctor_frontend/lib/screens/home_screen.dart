@@ -22,11 +22,26 @@ class _HomeScreenState extends State<HomeScreen> {
   String _errorMessage = '';
   final _storage = const FlutterSecureStorage();
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>(); // Add a key for the Scaffold
+  Map<String, dynamic>? _userProfile; // To hold the loaded user profile
 
   @override
   void initState() {
     super.initState();
-    _fetchPrescriptions();
+    _loadUserProfileAndPrescriptions();
+  }
+
+  Future<void> _loadUserProfileAndPrescriptions() async {
+    await _loadUserProfile();
+    await _fetchPrescriptions();
+  }
+
+  Future<void> _loadUserProfile() async {
+    final profileJson = await _storage.read(key: 'user_profile');
+    if (profileJson != null) {
+      setState(() {
+        _userProfile = jsonDecode(profileJson);
+      });
+    }
   }
 
   Future<void> _handleLogout() async {
@@ -109,9 +124,13 @@ class _HomeScreenState extends State<HomeScreen> {
       drawer: Drawer(
         child: Column(
           children: <Widget>[
-            const UserAccountsDrawerHeader(
-              accountName: Text("Dr. Name Placeholder"), // TODO: Replace with dynamic data
-              accountEmail: Text("doctor.email@placeholder.com"), // TODO: Replace with dynamic data
+            UserAccountsDrawerHeader(
+              accountName: Text(
+                _userProfile != null
+                  ? '${_userProfile!['first_name'] ?? ''} ${_userProfile!['last_name'] ?? ''}'
+                  : 'Loading...'
+              ),
+              accountEmail: Text(_userProfile?['email'] ?? ''),
               currentAccountPicture: CircleAvatar(
                 backgroundColor: Colors.white,
                 child: Icon(Icons.person, size: 50),

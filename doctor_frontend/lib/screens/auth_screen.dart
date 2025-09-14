@@ -209,7 +209,9 @@ class _AuthScreenState extends State<AuthScreen> {
 
           if (apiToken != null && userProfile != null) {
             await _storage.write(key: 'api_token', value: apiToken);
-            print('Final API token stored securely.');
+            // Store the user profile as a JSON string
+            await _storage.write(key: 'user_profile', value: jsonEncode(userProfile));
+            print('Final API token and user profile stored securely.');
 
             // --- NEW NAVIGATION LOGIC ---
             // Check for the doctor-specific profile and its status.
