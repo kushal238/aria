@@ -15,7 +15,8 @@ import 'profile_completion_screen.dart'; // Import the profile screen
 
 // Renamed Class as requested
 class AuthScreen extends StatefulWidget {
-  const AuthScreen({super.key});
+  final bool isSignUp;
+  const AuthScreen({super.key, this.isSignUp = true});
 
   @override
   State<AuthScreen> createState() => _AuthScreenState();
@@ -29,9 +30,15 @@ class _AuthScreenState extends State<AuthScreen> {
   final _confirmPasswordController = TextEditingController(); // For sign-up validation
 
   final _storage = const FlutterSecureStorage();
-  bool _isSignUp = true; // Start in Sign Up mode by default
+  late bool _isSignUp;
   bool _isLoading = false;
   final String _backendUrl = 'https://c51qcky1d1.execute-api.us-east-1.amazonaws.com/dev/'; // Adjust IP/port as needed for platform
+
+  @override
+  void initState() {
+    super.initState();
+    _isSignUp = widget.isSignUp;
+  }
 
   @override
   void dispose() {

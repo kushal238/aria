@@ -2,7 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:amplify_flutter/amplify_flutter.dart';
 import 'package:amplify_auth_cognito/amplify_auth_cognito.dart';
 import 'package:doctor_frontend/amplifyconfiguration.dart';
-import 'package:doctor_frontend/screens/auth_screen.dart';
+import 'package:doctor_frontend/screens/welcome_screen.dart';
+import 'package:doctor_frontend/theme.dart'; // Import the new theme file
 
 void main() {
   runApp(const MyApp());
@@ -36,10 +37,8 @@ class _MyAppState extends State<MyApp> {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'Doctor App',
-      theme: ThemeData(
-        primarySwatch: Colors.blue,
-      ),
-      home: const AuthScreen(),
+      theme: AppTheme.lightTheme, // Use the new custom theme
+      home: const WelcomeScreen(),
     );
   }
 }

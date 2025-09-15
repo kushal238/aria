@@ -14,6 +14,8 @@ import 'amplifyconfiguration.dart';
 // Import your screens and AuthWrapper
 import 'screens/auth_screen.dart';
 import 'screens/home_screen.dart';
+import 'screens/welcome_screen.dart';
+import 'theme.dart'; // Import the new theme file
 // Assuming AuthWrapper is in main.dart or imported from elsewhere
 // If AuthWrapper is not defined here, you need to import its file.
 
@@ -66,12 +68,9 @@ class MyApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'Health App',
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
-        useMaterial3: true,
-      ),
+      theme: AppTheme.lightTheme, // Use the new custom theme
       // Keep AuthWrapper as the home (we'll modify it next)
-      home: const AuthWrapper(),
+      home: const WelcomeScreen(),
     );
   }
 }

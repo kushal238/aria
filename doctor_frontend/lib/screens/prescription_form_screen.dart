@@ -164,7 +164,7 @@ class _PrescriptionFormScreenState extends State<PrescriptionFormScreen> {
               TextFormField(
                 controller: _diagnosisController,
                 decoration: const InputDecoration(
-                  labelText: 'Diagnosis (Optional)',
+                  labelText: 'Diagnosis',
                   border: OutlineInputBorder(),
                 ),
                 textCapitalization: TextCapitalization.sentences,
