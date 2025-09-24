@@ -5,3 +5,4 @@ python-jose[cryptography]
 PyJWT
 mangum
 boto3
+pg8000==1.29.8

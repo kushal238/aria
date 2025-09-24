@@ -11,8 +11,9 @@ from ..crud import (
     db_update_user_profile,
     db_get_full_user_profile,
     db_get_user_by_id,
+    db_get_user_by_cognito_sub,
 )
-from ..security import verify_api_token
+from ..security import get_cognito_user_info
 from ..database import users_table
 
 router = APIRouter()
@@ -21,16 +22,21 @@ router = APIRouter()
 @router.post("/users/complete-profile", response_model=UserResponse, tags=["User Profile"])
 async def complete_user_profile(
     profile_data: ProfileData,
-    token_payload: Dict[str, Any] = Depends(verify_api_token)
+    cognito_claims: Dict[str, Any] = Depends(get_cognito_user_info)
 ):
     """
     Updates the profile for the currently logged-in user.
-    Requires a valid backend api_token.
+    Uses Cognito authorizer claims to resolve the internal user ID.
     """
     try:
-        internal_user_id = token_payload.get("sub")
-        if not internal_user_id:
-             raise HTTPException(status_code=400, detail="User ID missing from token payload.")
+        cognito_sub = cognito_claims.get("sub")
+        if not cognito_sub:
+            raise HTTPException(status_code=400, detail="Cognito SUB missing from token.")
+
+        user_record = db_get_user_by_cognito_sub(cognito_sub)
+        if not user_record or not user_record.get("userId"):
+            raise HTTPException(status_code=404, detail="User not found for Cognito SUB.")
+        internal_user_id = user_record["userId"]
 
         print(f"Completing profile for internal user ID: {internal_user_id}")
 
@@ -52,14 +58,17 @@ async def complete_user_profile(
 
 
 @router.get("/users/me", response_model=UserResponse, tags=["User Profile"])
-async def read_users_me(token_payload: Dict[str, Any] = Depends(verify_api_token)):
+async def read_users_me(cognito_claims: Dict[str, Any] = Depends(get_cognito_user_info)):
     """
     Get profile information for the currently authenticated user.
-    Verifies the final backend api_token.
+    Uses Cognito claims to resolve the internal user ID.
     """
-    internal_user_id = token_payload.get("sub")
-    user_data = db_get_full_user_profile(internal_user_id)
+    cognito_sub = cognito_claims.get("sub")
+    user_record = db_get_user_by_cognito_sub(cognito_sub)
+    if not user_record:
+        raise HTTPException(status_code=404, detail="User not found in database")
 
+    user_data = db_get_full_user_profile(user_record["userId"])
     if not user_data:
         raise HTTPException(status_code=404, detail="User not found in database")
 
@@ -69,15 +78,17 @@ async def read_users_me(token_payload: Dict[str, Any] = Depends(verify_api_token
 @router.get("/users/search", response_model=List[UserResponse], tags=["Users"])
 async def search_patients(
     q: str,
-    token_payload: Dict[str, Any] = Depends(verify_api_token)
+    cognito_claims: Dict[str, Any] = Depends(get_cognito_user_info)
 ):
     """
     Search for patients by name. Doctor-only endpoint.
     NOTE: This uses a scan operation, which is not efficient for large tables.
           For a production system, a dedicated search index is recommended.
     """
-    user_id = token_payload.get("sub")
-    user = db_get_full_user_profile(user_id)
+    requester = db_get_user_by_cognito_sub(cognito_claims.get("sub"))
+    if not requester:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    user = db_get_full_user_profile(requester["userId"])
     if 'DOCTOR' not in user.get('roles', []):
         raise HTTPException(status_code=403, detail="Only doctors can search for patients.")
 

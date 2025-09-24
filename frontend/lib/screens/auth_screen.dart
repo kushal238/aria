@@ -32,7 +32,7 @@ class _AuthScreenState extends State<AuthScreen> {
   final _storage = const FlutterSecureStorage();
   late bool _isSignUp;
   bool _isLoading = false;
-  final String _backendUrl = 'https://c51qcky1d1.execute-api.us-east-1.amazonaws.com/dev/'; // Adjust IP/port as needed for platform
+  final String _backendUrl = 'https://tzzexehfq1.execute-api.us-east-1.amazonaws.com/dev/'; // Adjust IP/port as needed for platform
 
   @override
   void initState() {
@@ -216,7 +216,7 @@ class _AuthScreenState extends State<AuthScreen> {
 
           if (apiToken != null && userProfile != null) {
             await _storage.write(key: 'api_token', value: apiToken);
-            await _storage.write(key: 'user_profile', value: jsonEncode(userProfile));
+            await _storage.write(key: 'id_token', value: idToken); // persist ID token
             print('Final API token and user profile stored securely.');
 
             // --- NEW NAVIGATION LOGIC ---

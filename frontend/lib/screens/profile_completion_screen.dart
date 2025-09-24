@@ -64,7 +64,7 @@ class _ProfileCompletionScreenState extends State<ProfileCompletionScreen> {
         throw Exception("Authentication token not found. Please log in again.");
       }
 
-      final url = Uri.parse('https://c51qcky1d1.execute-api.us-east-1.amazonaws.com/dev/users/me');
+      final url = Uri.parse('https://tzzexehfq1.execute-api.us-east-1.amazonaws.com/dev/users/me');
       final headers = {
         'Content-Type': 'application/json',
         'Authorization': 'Bearer $apiToken',
@@ -122,9 +122,9 @@ class _ProfileCompletionScreenState extends State<ProfileCompletionScreen> {
     setState(() { _isLoading = true; });
 
     try {
-      // 1. Retrieve the final api_token saved after login
-      final apiToken = await _storage.read(key: 'api_token');
-      if (apiToken == null) {
+      // 1. Retrieve the Cognito ID token saved after login
+      final idToken = await _storage.read(key: 'id_token');
+      if (idToken == null) {
         throw Exception("Authentication token not found. Please log in again.");
       }
 
@@ -148,11 +148,11 @@ class _ProfileCompletionScreenState extends State<ProfileCompletionScreen> {
       profileData['blood_type'] = _bloodTypeController.text.trim().isEmpty ? null : _bloodTypeController.text.trim();
 
       // 3. Prepare the request
-      final url = Uri.parse('https://c51qcky1d1.execute-api.us-east-1.amazonaws.com/dev/users/complete-profile');
+      final url = Uri.parse('https://tzzexehfq1.execute-api.us-east-1.amazonaws.com/dev/users/complete-profile');
 
       final headers = {
         'Content-Type': 'application/json',
-        'Authorization': 'Bearer $apiToken', // Send the final api_token
+        'Authorization': idToken, // Send Cognito ID token
       };
 
       final body = jsonEncode(profileData);

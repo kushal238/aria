@@ -10,6 +10,7 @@ from fastapi import FastAPI
 from mangum import Mangum
 
 from .routers import auth, users, prescriptions
+from .routers import drugs
 
 app = FastAPI(
     title="Prescription App Backend API (Refactored)",
@@ -20,6 +21,7 @@ app = FastAPI(
 app.include_router(auth.router)
 app.include_router(users.router)
 app.include_router(prescriptions.router)
+app.include_router(drugs.router)
 
 @app.get("/health", tags=["Health Check"])
 def health_check():

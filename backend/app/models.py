@@ -15,7 +15,15 @@ class PatientProfile(BaseModel):
     # Add other patient-specific fields here from the Patients table
 
 class MedicationItem(BaseModel):
-    name: str
+    # SNOMED CT Coding Information
+    system: str = Field("http://snomed.info/sct", alias="system")
+    code: str = Field(..., alias="code")
+    display: str = Field(..., alias="display")
+    
+    # Original doctor input for reference and fallback
+    original_input: Optional[str] = None
+    
+    # Structured dosage information
     dosage: str
     frequency: str
     duration: str

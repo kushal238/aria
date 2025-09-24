@@ -246,14 +246,14 @@ def db_update_user_profile(user_id: str, profile: ProfileData) -> Optional[Dict[
                 'ExpressionAttributeValues': patient_expression_values,
                 'ExpressionAttributeNames': patient_expression_names,
                 'ReturnValues': "NONE"
-    }
+                    }
 
-    try:
-        patients_table.update_item(**update_args)
-        print(f"DB Write: Updated Patients table for user ID: {user_id}")
-    except Exception as e:
-        print(f"DB Update Error (Patients table) for user ID {user_id}: {e}")
-        return None
+            try:
+                patients_table.update_item(**update_args)
+                print(f"DB Write: Updated Patients table for user ID: {user_id}")
+            except Exception as e:
+                print(f"DB Update Error (Patients table) for user ID {user_id}: {e}")
+                return None
 
     # 3. Update the Doctors table (if the user has the DOCTOR role and doctor fields are provided)
     # --------------------------------------------------------------------------------------------
@@ -291,8 +291,8 @@ def db_update_user_profile(user_id: str, profile: ProfileData) -> Optional[Dict[
                 print(f"DB Write: Updated Doctors table for user ID: {user_id}")
             except Exception as e:
                 print(f"DB Update Error (Doctors table) for user ID {user_id}: {e}")
-        return None
-        
+                return None
+
     # 4. Combine and return the results
     # ---------------------------------
     return db_get_full_user_profile(user_id)

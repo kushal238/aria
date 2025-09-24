@@ -1,0 +1,5 @@
+# Required to interact with AWS services like Secrets Manager
+boto3
+
+# The standard PostgreSQL database adapter for Python
+psycopg2-binary

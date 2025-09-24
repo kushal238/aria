@@ -6,6 +6,7 @@ import 'package:amplify_flutter/amplify_flutter.dart';
 import 'package:amplify_auth_cognito/amplify_auth_cognito.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
+import 'package:flutter/services.dart';
 
 // Import other screens needed for navigation
 import 'otp_screen.dart'; // For navigation on sign up confirmation
@@ -32,7 +33,7 @@ class _AuthScreenState extends State<AuthScreen> {
   final _storage = const FlutterSecureStorage();
   late bool _isSignUp;
   bool _isLoading = false;
-  final String _backendUrl = 'https://c51qcky1d1.execute-api.us-east-1.amazonaws.com/dev/'; // Adjust IP/port as needed for platform
+  final String _backendUrl = 'https://tzzexehfq1.execute-api.us-east-1.amazonaws.com/dev/'; // Adjust IP/port as needed for platform
 
   @override
   void initState() {
@@ -193,6 +194,20 @@ class _AuthScreenState extends State<AuthScreen> {
         print('--- END ID TOKEN ---');
         // ------------------------------------
 
+        // --- COPY ID TOKEN TO CLIPBOARD & PRINT LENGTH/SEGMENTS ---
+        try {
+          await Clipboard.setData(ClipboardData(text: idToken));
+          print('ID token copied to clipboard. length=${idToken.length}, segments=${idToken.split('.').length}');
+          // Optional: print in chunks to avoid console truncation
+          for (var i = 0; i < idToken.length; i += 500) {
+            final end = (i + 500 > idToken.length) ? idToken.length : i + 500;
+            print(idToken.substring(i, end));
+          }
+        } catch (e) {
+          print('Clipboard copy failed: $e');
+        }
+        // -----------------------------------------------------------
+
         final url = Uri.parse('$_backendUrl/auth/login'); // Use defined backend URL
         print('Sending Cognito ID token to backend via Authorization header...');
         final response = await http.post(
@@ -216,6 +231,7 @@ class _AuthScreenState extends State<AuthScreen> {
 
           if (apiToken != null && userProfile != null) {
             await _storage.write(key: 'api_token', value: apiToken);
+            await _storage.write(key: 'id_token', value: idToken); // persist ID token
             // Store the user profile as a JSON string
             await _storage.write(key: 'user_profile', value: jsonEncode(userProfile));
             print('Final API token and user profile stored securely.');

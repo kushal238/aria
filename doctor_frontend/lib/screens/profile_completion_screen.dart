@@ -82,7 +82,7 @@ class _ProfileCompletionScreenState extends State<ProfileCompletionScreen> {
       };
 
       // 3. Prepare the request
-      final url = Uri.parse('https://c51qcky1d1.execute-api.us-east-1.amazonaws.com/dev/users/complete-profile');
+      final url = Uri.parse('https://tzzexehfq1.execute-api.us-east-1.amazonaws.com/dev/users/complete-profile');
 
       final headers = {
         'Content-Type': 'application/json',

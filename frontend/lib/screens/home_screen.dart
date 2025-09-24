@@ -53,15 +53,15 @@ class _HomeScreenState extends State<HomeScreen> {
     });
     
     try {
-      final apiToken = await _storage.read(key: 'api_token');
-      if (apiToken == null) throw Exception("Authentication token not found.");
+      final idToken = await _storage.read(key: 'id_token');
+      if (idToken == null) throw Exception("Authentication token not found.");
 
-      final url = Uri.parse('https://c51qcky1d1.execute-api.us-east-1.amazonaws.com/dev/prescriptions');
+      final url = Uri.parse('https://tzzexehfq1.execute-api.us-east-1.amazonaws.com/dev/prescriptions');
       final response = await http.get(
         url,
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': 'Bearer $apiToken',
+          'Authorization': idToken,
         },
       );
 

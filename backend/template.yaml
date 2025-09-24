@@ -5,8 +5,7 @@ Description: >
 
 Globals:
   Function:
-    Timeout: 10
-    MemorySize: 256
+    Timeout: 30 # Increased timeout for potential VPC networking latency
 
 Resources:
   # --- Cognito User Pool, managed by this template ---
@@ -71,23 +70,35 @@ Resources:
     Properties:
       CodeUri: .
       Handler: app.main.handler
-      Runtime: python3.9
+      Runtime: python3.11
       Architectures:
         - x86_64
+      # We now use an explicit IAM Role for clearer permissions management.
+      Role: !GetAtt ApiFunctionRole.Arn
+      # This critical section places our Lambda function inside our private network.
+      VpcConfig:
+        SecurityGroupIds:
+          - !Ref LambdaSecurityGroup
+        SubnetIds:
+          - !Ref PrivateSubnetA
+          - !Ref PrivateSubnetB
       Environment:
         Variables:
           COGNITO_REGION: !Ref AWS::Region
-          COGNITO_USERPOOL_ID: !Ref PrescriptionMasterUserPool # Reference the new User Pool
-          # We need both App Client IDs to identify the app type from the token
+          COGNITO_USERPOOL_ID: !Ref PrescriptionMasterUserPool
           PATIENT_APP_CLIENT_ID: !Ref PatientAppClient
           DOCTOR_APP_CLIENT_ID: !Ref DoctorAppClient
           USERS_TABLE_NAME: !Ref UsersTable
           PATIENTS_TABLE_NAME: !Ref PatientsTable
           DOCTORS_TABLE_NAME: !Ref DoctorsTable
           PRESCRIPTIONS_TABLE_NAME: !Ref PrescriptionsTable
-          API_JWT_SECRET_NAME: '/PrescriptionMaster/ApiJwtSecret'
+          API_JWT_SECRET_NAME: '/PrescriptionMaster/API_JWT_SECRET'
+          # Pass the ARN of the secret so our code knows where to find the DB password.
+          DB_SECRET_ARN: !Ref DatabaseCredentialsSecret
+          DB_NAME: drugindex
+          DB_HOST: !GetAtt PgDrugDatabaseCluster.Endpoint.Address
       Events:
-        # This event handles the login route and implicitly uses the DefaultAuthorizer (Cognito)
+        # This event handles the login route, which doesn't need our custom authorizer
         Login:
           Type: Api
           Properties:
@@ -102,29 +113,14 @@ Resources:
             Path: /{proxy+}
             Method: any
             RestApiId: !Ref PrescriptionMasterApi
-            Auth:
-              Authorizer: NONE
-      Policies:
-        - DynamoDBCrudPolicy:
-            TableName: !Ref UsersTable
-        - DynamoDBCrudPolicy:
-            TableName: !Ref PatientsTable
-        - DynamoDBCrudPolicy:
-            TableName: !Ref DoctorsTable
-        - DynamoDBCrudPolicy:
-            TableName: !Ref PrescriptionsTable
-        - Statement:
-          - Effect: Allow
-            Action:
-              - ssm:GetParameter
-            Resource: !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/PrescriptionMaster/ApiJwtSecret'
 
+  # --- Primary Data Storage (Amazon DynamoDB) ---
   UsersTable:
     Type: AWS::DynamoDB::Table
     DeletionPolicy: Retain
     UpdateReplacePolicy: Retain
     Properties:
-      TableName: Users
+      TableName: !Sub ${AWS::StackName}-Users
       AttributeDefinitions:
         - AttributeName: userId
           AttributeType: S
@@ -147,7 +143,7 @@ Resources:
     DeletionPolicy: Retain
     UpdateReplacePolicy: Retain
     Properties:
-      TableName: Patients
+      TableName: !Sub ${AWS::StackName}-Patients
       AttributeDefinitions:
         - AttributeName: userId
           AttributeType: S
@@ -161,7 +157,7 @@ Resources:
     DeletionPolicy: Retain
     UpdateReplacePolicy: Retain
     Properties:
-      TableName: Doctors
+      TableName: !Sub ${AWS::StackName}-Doctors
       AttributeDefinitions:
         - AttributeName: userId
           AttributeType: S
@@ -207,6 +203,312 @@ Resources:
             ProjectionType: ALL
       BillingMode: PAY_PER_REQUEST
 
+  # -----------------------------------------------------------------------------------
+  # NETWORKING INFRASTRUCTURE (VPC)
+  # -----------------------------------------------------------------------------------
+  # Creates a secure, isolated network for our database and Lambda to communicate privately.
+
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-VPC"
+
+  PublicSubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.0.1.0/24
+      AvailabilityZone: !Select [0, !GetAZs '']
+      MapPublicIpOnLaunch: true
+
+  PublicSubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.0.2.0/24
+      AvailabilityZone: !Select [1, !GetAZs '']
+      MapPublicIpOnLaunch: true
+
+  PrivateSubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.0.3.0/24
+      AvailabilityZone: !Select [0, !GetAZs '']
+
+  PrivateSubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.0.4.0/24
+      AvailabilityZone: !Select [1, !GetAZs '']
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+  VPCGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref InternetGateway
+
+  NatGateway:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt EIP.AllocationId
+      SubnetId: !Ref PublicSubnetA
+  EIP:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+  PublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: VPCGatewayAttachment
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+  PublicSubnetARouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnetA
+      RouteTableId: !Ref PublicRouteTable
+  PublicSubnetBRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnetB
+      RouteTableId: !Ref PublicRouteTable
+
+  PrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+  PrivateRoute:
+    Type: AWS::EC2::Route
+    # CORRECTED: Added explicit dependency to prevent race condition
+    DependsOn: NatGateway
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NatGateway
+  PrivateSubnetARouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnetA
+      RouteTableId: !Ref PrivateRouteTable
+  PrivateSubnetBRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnetB
+      RouteTableId: !Ref PrivateRouteTable
+
+  # -----------------------------------------------------------------------------------
+  # SECURITY GROUPS (FIREWALLS)
+  # -----------------------------------------------------------------------------------
+
+  LambdaSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: "Security group for the API Lambda function"
+      VpcId: !Ref VPC
+
+  DatabaseSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: "Security group for the Aurora database"
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        # This rule allows INBOUND traffic on the PostgreSQL port (5432)
+        # ONLY if it comes from our Lambda function. This is a critical security control.
+        - IpProtocol: tcp
+          FromPort: 5432
+          ToPort: 5432
+          SourceSecurityGroupId: !Ref LambdaSecurityGroup
+
+  # -----------------------------------------------------------------------------------
+  # DRUG INDEX DATABASE (AURORA SERVERLESS V2)
+  # -----------------------------------------------------------------------------------
+
+  DatabaseSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: "Subnet group for the Aurora database"
+      SubnetIds:
+        - !Ref PrivateSubnetA
+        - !Ref PrivateSubnetB
+
+  DatabaseCredentialsSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: !Sub ${AWS::StackName}-db-credentials
+      Description: "Credentials for the Drug Index database"
+      GenerateSecretString:
+        SecretStringTemplate: '{"username": "postgres"}'
+        GenerateStringKey: "password"
+        PasswordLength: 16
+        ExcludeCharacters: '"@/\\'
+
+  DrugDatabaseCluster:
+    Type: AWS::RDS::DBCluster
+    Properties:
+      Engine: aurora-postgresql
+      DBClusterIdentifier: !Sub "${AWS::StackName}-drug-database"
+      # Port intentionally omitted to avoid replacing the existing cluster
+      DatabaseName: drugindex
+      MasterUsername: !Join ['', ['{{resolve:secretsmanager:', !Ref DatabaseCredentialsSecret, ':SecretString:username}}']]
+      MasterUserPassword: !Join ['', ['{{resolve:secretsmanager:', !Ref DatabaseCredentialsSecret, ':SecretString:password}}']]
+      DBSubnetGroupName: !Ref DatabaseSubnetGroup
+      VpcSecurityGroupIds:
+        - !Ref DatabaseSecurityGroup
+      ServerlessV2ScalingConfiguration:
+        MinCapacity: 0.5
+        MaxCapacity: 2.0
+      DeletionProtection: false
+
+  DrugDatabaseInstance:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      DBClusterIdentifier: !Ref DrugDatabaseCluster
+      DBInstanceClass: db.serverless
+      Engine: aurora-postgresql
+      PubliclyAccessible: false
+
+  # New dedicated PostgreSQL cluster on the standard port 5432
+  PgDrugDatabaseCluster:
+    Type: AWS::RDS::DBCluster
+    Properties:
+      Engine: aurora-postgresql
+      DBClusterIdentifier: !Sub "${AWS::StackName}-pg-drug-database"
+      Port: 5432
+      DatabaseName: drugindex
+      MasterUsername: !Join ['', ['{{resolve:secretsmanager:', !Ref DatabaseCredentialsSecret, ':SecretString:username}}']]
+      MasterUserPassword: !Join ['', ['{{resolve:secretsmanager:', !Ref DatabaseCredentialsSecret, ':SecretString:password}}']]
+      DBSubnetGroupName: !Ref DatabaseSubnetGroup
+      VpcSecurityGroupIds:
+        - !Ref DatabaseSecurityGroup
+      ServerlessV2ScalingConfiguration:
+        MinCapacity: 0.5
+        MaxCapacity: 2.0
+      DeletionProtection: false
+
+  PgDrugDatabaseInstance:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      DBClusterIdentifier: !Ref PgDrugDatabaseCluster
+      DBInstanceClass: db.serverless
+      Engine: aurora-postgresql
+      PubliclyAccessible: false
+
+  # -----------------------------------------------------------------------------------
+  # PERMISSIONS (IAM ROLE)
+  # -----------------------------------------------------------------------------------
+
+  ApiFunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole
+      Policies:
+        - PolicyName: DynamoDBPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: DynamoDBPolicy
+                Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:PutItem
+                  - dynamodb:Query
+                  - dynamodb:UpdateItem
+                  - dynamodb:DeleteItem
+                  - dynamodb:Scan
+                Resource:
+                  - !GetAtt UsersTable.Arn
+                  - !Sub "${UsersTable.Arn}/index/*"
+                  - !GetAtt PatientsTable.Arn
+                  - !GetAtt DoctorsTable.Arn
+                  - !GetAtt PrescriptionsTable.Arn
+                  - !Sub "${PrescriptionsTable.Arn}/index/*"
+        - PolicyName: SSMParameterStorePolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: SSMParameterStorePolicy
+                Effect: Allow
+                Action:
+                  - ssm:GetParameter
+                Resource: !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/PrescriptionMaster/API_JWT_SECRET"
+        - PolicyName: SecretsManagerPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - secretsmanager:GetSecretValue
+                Resource: !Ref DatabaseCredentialsSecret
+
+  # S3 bucket for ingestion staging
+  IngestionBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub ${AWS::StackName}-cdci-ingestion
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+  IngestFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ingest_lambda/
+      Handler: app.handler
+      Runtime: python3.11
+      Timeout: 900
+      MemorySize: 1024
+      VpcConfig:
+        SecurityGroupIds:
+          - !Ref LambdaSecurityGroup
+        SubnetIds:
+          - !Ref PrivateSubnetA
+          - !Ref PrivateSubnetB
+      Policies:
+        - AWSLambdaVPCAccessExecutionRole
+        - Statement:
+            - Effect: Allow
+              Action:
+                - secretsmanager:GetSecretValue
+              Resource: !Ref DatabaseCredentialsSecret
+            - Effect: Allow
+              Action:
+                - s3:GetObject
+              Resource: !Sub arn:aws:s3:::${IngestionBucket}/*
+      Environment:
+        Variables:
+          S3_BUCKET: !Ref IngestionBucket
+          S3_KEY: cdci/BrandMaster.txt
+          DB_NAME: drugindex
+          DB_HOST: !GetAtt PgDrugDatabaseCluster.Endpoint.Address
+          DB_SECRET_ARN: !Ref DatabaseCredentialsSecret
+
 Outputs:
   ApiEndpoint:
     Description: "API Gateway endpoint URL for the application"
@@ -220,3 +522,6 @@ Outputs:
   DoctorAppClientId:
     Description: "The Client ID for the Doctor mobile app"
     Value: !Ref DoctorAppClient
+  IngestFunctionName:
+    Description: Ingestion Lambda function name
+    Value: !Ref IngestFunction

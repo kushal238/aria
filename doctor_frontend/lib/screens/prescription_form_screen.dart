@@ -4,6 +4,11 @@ import 'package:http/http.dart' as http;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:intl/intl.dart';
 
+import 'package:flutter_typeahead/flutter_typeahead.dart';
+import 'package:amplify_flutter/amplify_flutter.dart';
+import 'package:amplify_auth_cognito/amplify_auth_cognito.dart';
+import 'package:amplify_flutter/amplify_flutter.dart';
+
 // Represents a single medication entry in the form
 class MedicationController {
   final TextEditingController name;
@@ -59,6 +64,7 @@ class _PrescriptionFormScreenState extends State<PrescriptionFormScreen> {
   
   bool _isLoading = false;
   final _storage = const FlutterSecureStorage();
+  final String _apiBase = 'https://tzzexehfq1.execute-api.us-east-1.amazonaws.com/dev';
 
   @override
   void initState() {
@@ -118,7 +124,7 @@ class _PrescriptionFormScreenState extends State<PrescriptionFormScreen> {
       });
 
       final response = await http.post(
-        Uri.parse('https://c51qcky1d1.execute-api.us-east-1.amazonaws.com/dev/prescriptions'),
+        Uri.parse('https://tzzexehfq1.execute-api.us-east-1.amazonaws.com/dev/prescriptions'),
         headers: {
           'Content-Type': 'application/json',
           'Authorization': 'Bearer $apiToken',
@@ -146,6 +152,42 @@ class _PrescriptionFormScreenState extends State<PrescriptionFormScreen> {
         setState(() { _isLoading = false; });
       }
     }
+  }
+
+  // --- Typeahead: call backend /drugs/search ---
+  Future<List<Map<String, dynamic>>> _searchDrugs(String pattern) async {
+    final query = pattern.trim();
+    if (query.length < 2) return [];
+    try {
+      String? idToken = await _storage.read(key: 'id_token');
+      if (idToken == null || idToken.isEmpty) {
+        debugPrint('Typeahead: id_token missing in storage, fetching from Amplify session...');
+        final session = await Amplify.Auth.fetchAuthSession();
+        if (session is CognitoAuthSession) {
+          idToken = session.userPoolTokensResult.value.idToken.raw;
+          await _storage.write(key: 'id_token', value: idToken);
+        }
+      }
+      if (idToken == null || idToken.isEmpty) {
+        debugPrint('Typeahead: no id_token available, aborting search');
+        return [];
+      }
+      final uri = Uri.parse('$_apiBase/drugs/search?q=${Uri.encodeQueryComponent(query)}&limit=10');
+      final resp = await http.get(
+        uri,
+        headers: { 'Authorization': 'Bearer $idToken' },
+      );
+      if (resp.statusCode == 200) {
+        final data = jsonDecode(resp.body) as Map<String, dynamic>;
+        final items = (data['items'] as List<dynamic>? ?? []).cast<Map<String, dynamic>>();
+        return items;
+      } else {
+        debugPrint('Typeahead: backend ${resp.statusCode} body=${resp.body}');
+      }
+    } catch (e) {
+      debugPrint('Typeahead error: $e');
+    }
+    return [];
   }
 
   @override
@@ -243,10 +285,37 @@ class _PrescriptionFormScreenState extends State<PrescriptionFormScreen> {
                 ],
               ),
               const SizedBox(height: 10),
-              TextFormField(
-                controller: controller.name,
-                decoration: const InputDecoration(labelText: 'Medication Name'),
-                validator: (value) => controller.isNotEmpty && (value == null || value.isEmpty) ? 'Name is required' : null,
+              TypeAheadField<Map<String, dynamic>>(
+                suggestionsCallback: (pattern) => _searchDrugs(pattern),
+                builder: (context, textController, focusNode) {
+                  // Keep controllers in sync so typing triggers searches
+                  textController.text = controller.name.text;
+                  textController.selection = TextSelection.fromPosition(TextPosition(offset: textController.text.length));
+                  return TextFormField(
+                    controller: textController,
+                    focusNode: focusNode,
+                    onChanged: (v) => controller.name.text = v,
+                    decoration: const InputDecoration(labelText: 'Medication Name (type to search)'),
+                    validator: (value) => controller.isNotEmpty && (value == null || value.isEmpty) ? 'Name is required' : null,
+                  );
+                },
+                itemBuilder: (context, suggestion) {
+                  return ListTile(
+                    title: Text(
+                      suggestion['brand_name']?.toString() ?? '',
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    subtitle: Text('Code: ${suggestion['identifier']}'),
+                  );
+                },
+                onSelected: (suggestion) {
+                  controller.name.text = suggestion['brand_name']?.toString() ?? '';
+                },
+                emptyBuilder: (context) => const Padding(
+                  padding: EdgeInsets.all(12.0),
+                  child: Text('No matches. You can enter free text.'),
+                ),
               ),
               const SizedBox(height: 10),
               Row(

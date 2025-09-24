@@ -10,8 +10,8 @@ from fastapi import APIRouter, Depends, HTTPException, status
 import boto3
 
 from ..models import PrescriptionResponse, PrescriptionCreate
-from ..crud import db_get_full_user_profile, db_get_user_by_id
-from ..security import verify_api_token
+from ..crud import db_get_full_user_profile, db_get_user_by_id, db_get_user_by_cognito_sub
+from ..security import get_cognito_user_info
 from ..database import prescriptions_table
 
 router = APIRouter()
@@ -20,12 +20,15 @@ router = APIRouter()
 @router.post("/prescriptions", response_model=PrescriptionResponse, status_code=status.HTTP_201_CREATED, tags=["Prescriptions"])
 async def create_prescription(
     prescription_data: PrescriptionCreate,
-    token_payload: Dict[str, Any] = Depends(verify_api_token)
+    cognito_claims: Dict[str, Any] = Depends(get_cognito_user_info)
 ):
     """
     Creates a new prescription. Doctor-only endpoint.
     """
-    doctor_id = token_payload.get("sub")
+    requester = db_get_user_by_cognito_sub(cognito_claims.get("sub"))
+    if not requester:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    doctor_id = requester["userId"]
     user = db_get_full_user_profile(doctor_id)
 
     if not user or 'DOCTOR' not in user.get('roles', []):
@@ -58,11 +61,14 @@ async def create_prescription(
 
 
 @router.get("/prescriptions", response_model=List[PrescriptionResponse], tags=["Prescriptions"])
-async def list_prescriptions(token_payload: Dict[str, Any] = Depends(verify_api_token)):
+async def list_prescriptions(cognito_claims: Dict[str, Any] = Depends(get_cognito_user_info)):
     """
     Lists prescriptions for the logged-in user.
     """
-    user_id = token_payload.get("sub")
+    requester = db_get_user_by_cognito_sub(cognito_claims.get("sub"))
+    if not requester:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    user_id = requester["userId"]
     user = db_get_full_user_profile(user_id)
     roles = user.get('roles', [])
     
@@ -116,11 +122,14 @@ async def list_prescriptions(token_payload: Dict[str, Any] = Depends(verify_api_
 
 
 @router.get("/prescriptions/{prescription_id}", response_model=PrescriptionResponse, tags=["Prescriptions"])
-async def get_prescription(prescription_id: str, token_payload: Dict[str, Any] = Depends(verify_api_token)):
+async def get_prescription(prescription_id: str, cognito_claims: Dict[str, Any] = Depends(get_cognito_user_info)):
     """
     Retrieves a single prescription by its ID.
     """
-    user_id = token_payload.get("sub")
+    requester = db_get_user_by_cognito_sub(cognito_claims.get("sub"))
+    if not requester:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    user_id = requester["userId"]
     
     try:
         response = prescriptions_table.get_item(Key={'prescriptionId': prescription_id})
@@ -138,11 +147,14 @@ async def get_prescription(prescription_id: str, token_payload: Dict[str, Any] =
 
 
 @router.put("/prescriptions/{prescription_id}/cancel", response_model=PrescriptionResponse, tags=["Prescriptions"])
-async def cancel_prescription(prescription_id: str, token_payload: Dict[str, Any] = Depends(verify_api_token)):
+async def cancel_prescription(prescription_id: str, cognito_claims: Dict[str, Any] = Depends(get_cognito_user_info)):
     """
     Cancels a prescription. Only the issuing doctor can perform this action.
     """
-    doctor_id = token_payload.get("sub")
+    requester = db_get_user_by_cognito_sub(cognito_claims.get("sub"))
+    if not requester:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    doctor_id = requester["userId"]
     
     try:
         response = prescriptions_table.get_item(Key={'prescriptionId': prescription_id})
