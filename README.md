@@ -4,7 +4,7 @@ In India, clinic doctors still hand physical prescriptions to patients. This phy
 
 We are creating a digital medical record of each doctor-patient interaction. The doctor will prescribe the patient on the doctor app, the patient will receive the prescription on the patients app, and we will maintain each record for both the parties to review anytime and have a history of.
 
-Additionally, we can deploy AI agents that can order based on the prescriptions, help doctors find patterns, etc.
+Additionally, we can deploy AI agents that can order medicines for patients based on the prescriptions, help doctors find patterns, among a lot more.
 
 ## Core Use Cases
 
