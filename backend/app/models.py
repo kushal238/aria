@@ -17,13 +17,16 @@ class PatientProfile(BaseModel):
 class MedicationItem(BaseModel):
     # SNOMED CT Coding Information
     system: str = Field("http://snomed.info/sct", alias="system")
-    code: str = Field(..., alias="code")
-    display: str = Field(..., alias="display")
+    # Allow optional for free-text entries; server normalizes to UNMAPPED
+    code: Optional[str] = Field(default=None, alias="code")
+    display: Optional[str] = Field(default=None, alias="display")
     
     # Original doctor input for reference and fallback
     original_input: Optional[str] = None
     
     # Structured dosage information
+    # Optional free-text name captured from UI; server may use it as fallback
+    name: Optional[str] = None
     dosage: str
     frequency: str
     duration: str

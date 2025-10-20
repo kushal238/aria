@@ -41,6 +41,30 @@ async def create_prescription(
     timestamp = datetime.now(timezone.utc).isoformat()
     prescription_id = str(uuid.uuid4())
     
+    # Normalize medications: ensure unmapped defaults and echo back exactly what we save
+    normalized_meds: List[Dict[str, Any]] = []
+    for med in prescription_data.medications:
+        m = med.dict(by_alias=True)
+        code = (m.get("code") or "").strip()
+        system = (m.get("system") or "").strip()
+        display = (m.get("display") or "").strip()
+        original_input = (m.get("original_input") or "").strip()
+
+        if not code:
+            code = "UNMAPPED"
+        if not system:
+            # If we don't have a system and it's not mapped, mark as UNMAPPED; else default SNOMED
+            system = "UNMAPPED" if code == "UNMAPPED" else "http://snomed.info/sct"
+        if not display:
+            # Prefer original free-text if present; else fall back to 'name' field
+            display = original_input or m.get("name") or ""
+
+        m["code"] = code
+        m["system"] = system
+        m["display"] = display
+        m["original_input"] = original_input or (display if code == "UNMAPPED" else original_input)
+        normalized_meds.append(m)
+
     new_prescription = {
         "prescriptionId": prescription_id,
         "patientId": prescription_data.patientId,
@@ -49,7 +73,7 @@ async def create_prescription(
         "expiresAt": prescription_data.expiresAt,
         "status": "ACTIVE",
         "diagnosis": prescription_data.diagnosis,
-        "medications": [med.dict() for med in prescription_data.medications]
+        "medications": normalized_meds
     }
     
     try:

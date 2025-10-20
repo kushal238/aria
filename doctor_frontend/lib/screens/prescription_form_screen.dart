@@ -8,6 +8,7 @@ import 'package:flutter_typeahead/flutter_typeahead.dart';
 import 'package:amplify_flutter/amplify_flutter.dart';
 import 'package:amplify_auth_cognito/amplify_auth_cognito.dart';
 import 'package:amplify_flutter/amplify_flutter.dart';
+import 'package:flutter/scheduler.dart';
 
 // Represents a single medication entry in the form
 class MedicationController {
@@ -17,12 +18,24 @@ class MedicationController {
   final TextEditingController duration;
   final TextEditingController instructions;
 
+  // Drug coding (from Aurora search)
+  String? system; // e.g., http://snomed.info/sct
+  String? code;   // identifier as string
+  String? display; // brand_name
+  String? originalInput; // what doctor had typed
+  bool selected; // whether a suggestion was chosen (sticky until edit)
+
   MedicationController()
       : name = TextEditingController(),
         dosage = TextEditingController(),
         frequency = TextEditingController(),
         duration = TextEditingController(),
-        instructions = TextEditingController();
+        instructions = TextEditingController(),
+        system = null,
+        code = null,
+        display = null,
+        originalInput = null,
+        selected = false;
   
   void dispose() {
     name.dispose();
@@ -37,7 +50,19 @@ class MedicationController {
 
   // Convert controller data to a map for API submission
   Map<String, dynamic> toMap() {
+    // If a mapped selection exists, use it; otherwise treat as free text
+    final bool mapped = (code != null && code!.isNotEmpty);
+    final String resolvedSystem = mapped ? (system ?? 'http://snomed.info/sct') : 'UNMAPPED';
+    final String resolvedCode = mapped ? code! : 'UNMAPPED';
+    final String resolvedDisplay = mapped ? (display ?? name.text) : name.text;
+    final String? resolvedOriginal = originalInput ?? (mapped ? name.text : name.text);
     return {
+      // SNOMED fields + original input for backend
+      'system': resolvedSystem,
+      'code': resolvedCode,
+      'display': resolvedDisplay,
+      'original_input': resolvedOriginal,
+      // legacy/free-text name retained for UI; backend can ignore if using display
       'name': name.text,
       'dosage': dosage.text,
       'frequency': frequency.text,
@@ -104,8 +129,16 @@ class _PrescriptionFormScreenState extends State<PrescriptionFormScreen> {
     setState(() { _isLoading = true; });
 
     try {
-      final apiToken = await _storage.read(key: 'api_token');
-      if (apiToken == null) throw Exception("Authentication token not found.");
+      // Use Cognito ID token for all API calls (API Gateway authorizer expects it)
+      String? idToken = await _storage.read(key: 'id_token');
+      if (idToken == null || idToken.isEmpty) {
+        final session = await Amplify.Auth.fetchAuthSession();
+        if (session is CognitoAuthSession) {
+          idToken = session.userPoolTokensResult.value.idToken.raw;
+          await _storage.write(key: 'id_token', value: idToken);
+        }
+      }
+      if (idToken == null || idToken.isEmpty) throw Exception("Authentication token not found.");
       
       final medicationsPayload = _medicationControllers
           .where((c) => c.isNotEmpty) // Filter out empty medication forms
@@ -127,7 +160,7 @@ class _PrescriptionFormScreenState extends State<PrescriptionFormScreen> {
         Uri.parse('https://tzzexehfq1.execute-api.us-east-1.amazonaws.com/dev/prescriptions'),
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': 'Bearer $apiToken',
+          'Authorization': 'Bearer $idToken',
         },
         body: body,
       );
@@ -286,7 +319,8 @@ class _PrescriptionFormScreenState extends State<PrescriptionFormScreen> {
               ),
               const SizedBox(height: 10),
               TypeAheadField<Map<String, dynamic>>(
-                suggestionsCallback: (pattern) => _searchDrugs(pattern),
+                debounceDuration: const Duration(milliseconds: 300),
+                suggestionsCallback: (pattern) => controller.selected ? Future.value([]) : _searchDrugs(pattern),
                 builder: (context, textController, focusNode) {
                   // Keep controllers in sync so typing triggers searches
                   textController.text = controller.name.text;
@@ -294,11 +328,19 @@ class _PrescriptionFormScreenState extends State<PrescriptionFormScreen> {
                   return TextFormField(
                     controller: textController,
                     focusNode: focusNode,
-                    onChanged: (v) => controller.name.text = v,
+                    onChanged: (v) {
+                      controller.name.text = v;
+                      // Any manual edit unlocks searching again
+                      controller.selected = false;
+                    },
                     decoration: const InputDecoration(labelText: 'Medication Name (type to search)'),
                     validator: (value) => controller.isNotEmpty && (value == null || value.isEmpty) ? 'Name is required' : null,
                   );
                 },
+                loadingBuilder: (context) => const Padding(
+                  padding: EdgeInsets.all(8.0),
+                  child: SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2)),
+                ),
                 itemBuilder: (context, suggestion) {
                   return ListTile(
                     title: Text(
@@ -310,13 +352,40 @@ class _PrescriptionFormScreenState extends State<PrescriptionFormScreen> {
                   );
                 },
                 onSelected: (suggestion) {
-                  controller.name.text = suggestion['brand_name']?.toString() ?? '';
+                  final before = controller.name.text;
+                  final selected = suggestion['brand_name']?.toString() ?? '';
+                  controller.name.text = selected;
+                  // Capture coding fields for backend payload
+                  controller.system = 'http://snomed.info/sct';
+                  final ident = suggestion['identifier'];
+                  controller.code = ident == null ? null : ident.toString();
+                  controller.display = selected;
+                  controller.originalInput = before.isEmpty ? selected : before;
+                  controller.selected = true; // lock suggestions until user edits
+                  // Trigger rebuild after the current frame to avoid setState during build
+                  // and let the internal textController sync from controller.name
+                  if (mounted) {
+                    SchedulerBinding.instance.addPostFrameCallback((_) {
+                      if (mounted) setState(() {});
+                    });
+                  }
                 },
-                emptyBuilder: (context) => const Padding(
-                  padding: EdgeInsets.all(12.0),
-                  child: Text('No matches. You can enter free text.'),
-                ),
+                emptyBuilder: (context) {
+                  // After a suggestion is selected, suppress the empty suggestion box entirely
+                  if (controller.selected) return const SizedBox.shrink();
+                  return const Padding(
+                    padding: EdgeInsets.all(12.0),
+                    child: Text('Enter medicine name'),
+                  );
+                },
               ),
+              if (controller.code != null && controller.code!.isNotEmpty) ...[
+                const SizedBox(height: 6),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text('Code: ${controller.code}', style: const TextStyle(fontSize: 12, color: Colors.black54)),
+                ),
+              ],
               const SizedBox(height: 10),
               Row(
                 children: [
